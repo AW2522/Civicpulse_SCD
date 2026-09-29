@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 import app.models as _models  # noqa: F401
 from app.config import settings
-from app.core.database import Base, close_db, engine
+from app.core.database import close_db
 from app.core.logging import logger, setup_logging
 from app.core.middleware import RequestIDMiddleware
 from app.core.redis import close_redis
