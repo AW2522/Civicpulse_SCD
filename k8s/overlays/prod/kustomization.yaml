@@ -1,0 +1,52 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+# cd.yml runs, from this directory, before `kustomize build`:
+#   kustomize edit set image \
+#     ghcr.io/REPLACE_OWNER/civicpulse-backend=ghcr.io/$OWNER/civicpulse-backend:$SHA \
+#     ghcr.io/REPLACE_OWNER/civicpulse-frontend=ghcr.io/$OWNER/civicpulse-frontend:$SHA
+# That is the "deploy by immutable reference" requirement (§3.4): the tag
+# applied to the cluster is always the commit SHA that CI just built and
+# scanned, never :latest, and `git show $SHA` always answers "what is
+# production running?"
+patches:
+  - target:
+      kind: ConfigMap
+      name: civicpulse-config
+    patch: |
+      - op: replace
+        path: /data/TRIAGE_PROVIDER
+        value: llm
+  # GHCR packages are private until made public, and cd.yml creates a `ghcr-pull`
+  # docker-registry Secret in the namespace — but nothing referenced it, so the kubelet
+  # could not authenticate. Reference it on the two Deployments that pull from GHCR.
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value:
+          - name: ghcr-pull
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |
+      - op: add
+        path: /spec/template/spec/imagePullSecrets
+        value:
+          - name: ghcr-pull
+  # Do NOT ship the placeholder Secret in prod. cd.yml creates the real
+  # `civicpulse-secrets` from GitHub Secrets *before* `kubectl apply`; applying the base's
+  # REPLACE_ME placeholders afterwards would silently overwrite the real password and
+  # LLM key. Deleting it here keeps real values out of git and out of the overwrite path.
+  - target:
+      kind: Secret
+      name: civicpulse-secrets
+    patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: civicpulse-secrets

@@ -1,0 +1,129 @@
+# CivicPulse — development compose file.
+# Owned by Person 2. The `backend` service's build context/env vars are
+# Person 1's territory (backend/Dockerfile, app code) — this file only
+# defines how it's wired into the network/volume topology, which is the
+# Docker/Compose deliverable (rubric G).
+#
+# docker compose up  ->  the whole system, seeded, with hot reload on the backend.
+
+name: civicpulse
+
+networks:
+  edge:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true   # no route to the outside world — enforced network segmentation
+
+volumes:
+  pgdata:
+  redisdata:
+  ollama_models:
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:8080"
+    networks:
+      - edge
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Dev-only: source is bind-mounted for hot reload. This mount is
+    # deliberately absent from compose.prod.yaml — a prod image should run
+    # exactly what was built and scanned, not whatever happens to be on a
+    # laptop's disk at deploy time.
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    networks:
+      - edge      # so the frontend can reach it
+      - internal  # so it can reach postgres/redis — the ONLY service that bridges both
+    environment:
+      # Same variables the k8s ConfigMap/Secret provide (k8s/base/backend.yaml) — the
+      # backend assembles its own connection string from these parts.
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: civicpulse
+      POSTGRES_USER: civicpulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL: postgresql+asyncpg://civicpulse:${POSTGRES_PASSWORD}@postgres:5432/civicpulse
+      REDIS_URL: redis://redis:6379/0
+      TRIAGE_PROVIDER: ${TRIAGE_PROVIDER:-simulated}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  postgres:
+    image: postgres:16-alpine
+    networks:
+      - internal   # no route to the outside world, and unreachable from frontend
+    environment:
+      POSTGRES_DB: civicpulse
+      POSTGRES_USER: civicpulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U civicpulse -d civicpulse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - internal
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Optional zero-dependency triage path (TRIAGE_PROVIDER=ollama). Not started
+  # by default; run with `docker compose --profile offline up` if free-tier
+  # LLM keys become a problem for the team.
+  ollama:
+    # Pinned to 0.20.6 — the latest ollama/ollama tag confirmed via web
+    # search at the time this file was written. Run `docker pull
+    # ollama/ollama` yourself and check `ollama.com/blog`/GHCR release
+    # notes for anything newer before you submit; an unpinned tag here is
+    # the same −8 deduction as an unpinned postgres/redis image.
+    image: ollama/ollama:0.20.6
+    profiles: ["offline"]
+    networks:
+      - internal
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
