@@ -27,11 +27,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} in environment '{settings.ENVIRONMENT}'...")
     try:
         from app.core.database import Base, engine
+        import app.models  # ensure models are registered with Base.metadata
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created successfully.")
+        logger.info("Database tables initialized successfully.")
     except Exception as e:
-        logger.error(f"Error initializing database schema on startup: {e}")
+        logger.warning(f"Database schema auto-creation skipped or failed on startup: {e}")
     yield
     logger.info("Received SIGTERM/SIGINT signal. Initiating graceful shutdown sequence...")
     await close_db()

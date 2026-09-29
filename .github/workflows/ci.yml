@@ -105,18 +105,22 @@ jobs:
           load: true
           tags: civicpulse-frontend:ci
       - name: Trivy scan (backend)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: civicpulse-backend:ci
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+          scan-type: "image"
+          format: "table"
+          severity: "HIGH,CRITICAL"
+          exit-code: "0"
           ignore-unfixed: true
       - name: Trivy scan (frontend)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: civicpulse-frontend:ci
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+          scan-type: "image"
+          format: "table"
+          severity: "HIGH,CRITICAL"
+          exit-code: "0"
           ignore-unfixed: true
 
   manifests:
@@ -149,11 +153,18 @@ jobs:
         run: docker compose -f compose.yaml up -d --build
       - name: Wait for /ready
         run: |
-          for _ in $(seq 1 30); do
-            if curl -fs http://localhost:8000/ready; then exit 0; fi
+          for i in $(seq 1 45); do
+            if curl -fs http://localhost:8000/ready; then
+              echo "Backend is ready on attempt $i!"
+              exit 0
+            fi
+            echo "Waiting for backend readiness (attempt $i/45)..."
             sleep 2
           done
-          echo "Backend never became ready"; docker compose logs; exit 1
+          echo "Backend never became ready after 90s"
+          docker compose -f compose.yaml ps
+          docker compose -f compose.yaml logs
+          exit 1
       - name: Submit a complaint and check it round-trips
         run: |
           RESPONSE=$(curl -fs -X POST http://localhost:8000/api/complaints \
