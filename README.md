@@ -81,6 +81,29 @@ make k8s-dev-up   # Deploys manifests to local k3d / kind cluster
 make load-test    # Executes k6 load testing suite (load/k6-script.js)
 ```
 
+### 3.4 End-to-End Integration Run Instructions
+To run and verify full-stack integration locally:
+
+1. **Environment Setup**:
+   ```bash
+   cp .env.example .env
+   ```
+2. **Start Backend & Infrastructure Stack**:
+   ```bash
+   docker compose -f compose.yaml up -d --build
+   ```
+3. **Launch Frontend Development Server**:
+   ```bash
+   cd frontend
+   npm ci
+   npm run dev
+   ```
+4. **Verify Application Connectivity**:
+   - Frontend SPA Interface: [http://localhost:5173](http://localhost:5173)
+   - Backend API Interactive Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+   - Service Readiness Health Check: [http://localhost:8000/ready](http://localhost:8000/ready)
+
+
 ---
 
 ## 4. API Endpoints Specification
