@@ -11,9 +11,9 @@ import type {
 
 // Relative path default for Vite dev-server proxy and production nginx,
 // with optional VITE_API_URL override support.
-const BASE_URL = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/api`
-  : '/api'
+const viteApiUrl = (import.meta.env as Record<string, string | undefined>)['VITE_API_URL']
+const BASE_URL = viteApiUrl ? `${viteApiUrl}/api` : '/api'
+
 
 
 export class ApiError extends Error {
