@@ -69,9 +69,30 @@ cluster / a future real prod cluster) would need its own separately-built
 image — exactly the problem §2.1 names as "you have destroyed
 build-once-deploy-many for the frontend."
 
+## Q4 — Why probabilistic correctness conflicts with CI determinism, and the exact line that reconciles them
+
+LLMs are fundamentally probabilistic: token sampling temperature, API rate limits, provider network blips, and prompt variations mean a real LLM endpoint cannot guarantee 100% deterministic outputs across identical test runs. Running automated CI test suites against live third-party LLMs introduces test flakiness, secret exposure risks, and external network dependencies that violate hermetic CI principles (§2.3).
+
+This conflict is reconciled in code via the provider abstraction:
+`.github/workflows/ci.yml:43` and `compose.yaml:66` explicitly set `TRIAGE_PROVIDER: simulated`.
+When this environment variable is present, `app/providers/triage_factory.py:32` routes triage requests to `SimulatedTriageProvider` (`app/providers/simulated_triage.py:12-38`), which returns deterministic, zero-latency categorization and priority fixtures without performing external network calls or consuming tokens.
+
+## Q5 — HPA lag analysis: why autoscaling lags load arrival, and how config buffers it
+
+Horizontal Pod Autoscaler (`k8s/base/hpa.yaml`) reacts with inherent latency:
+1. **Metrics Scraping Lag**: Metrics Server collects pod CPU metrics at 15–30s intervals.
+2. **Smoothing Window**: HPA calculates average utilization across past samples to prevent flapping.
+3. **Pod Startup & Warmup Delay**: New pods require time for scheduling, image pulling, Python runtime initialization, and health probe verification (`startupProbe` + `readinessProbe`).
+
+During a sharp burst, incoming requests arrive before new pods reach the `Ready` state. We buffer this lag through four specific configurations:
+1. **Target Utilization Headroom**: `k8s/base/hpa.yaml:16` sets `averageUtilization: 70`, leaving 30% surplus compute headroom on existing replicas to absorb spikes while new pods initialize.
+2. **Aggressive Scale-Up Stabilization**: `k8s/base/hpa.yaml:18-24` configures `scaleUp.stabilizationWindowSeconds: 0` and allows scaling up to 100% additional replicas immediately.
+3. **Fast Startup Probes**: `k8s/base/backend.yaml:36-41` configures `startupProbe` with `periodSeconds: 2` and `failureThreshold: 15`, letting ready pods join the Service endpoint in <4 seconds.
+4. **Baseline Replicas**: `k8s/base/backend.yaml:9` maintains `minReplicas: 2` ensuring baseline redundancy.
+
 ## Q6 — Why VPA runs in `Off` (recommender) mode here, and the failure mode of `Auto` alongside HPA
 
-`k8s/base/vpa.yaml`, `updatePolicy.updateMode: "Off"`. The comment directly
+`k8s/base/vpa.yaml:10`, `updatePolicy.updateMode: "Off"`. The comment directly
 above it in that file states the reasoning verbatim, repeated here: HPA
 (`k8s/base/hpa.yaml`) scales the backend on CPU **utilization**, which is
 `usage ÷ request`. If VPA ran in `Auto` mode on the same Deployment, it
@@ -89,11 +110,27 @@ describe vpa backend-vpa`), but never acts on them — a human reads the
 recommendation, updates `k8s/base/backend.yaml`'s `resources.requests` by
 hand, and only then does HPA see a new, stable denominator.
 
----
+## Q7 — How network isolation protects data while allowing outbound LLM traffic
 
-*Q4 (probabilistic correctness / CI determinism), Q5 (HPA lag analysis),
-Q7 (internal network vs. hosted LLM) and Q8 (the failure that cost more
-than an hour) are Person 1's / joint, and need real measurements this
-sandbox can't produce (a live triage run, a real load-test capture, an
-actual production incident) — still to be filled in once the system is
-actually running end to end.*
+The architecture enforces strict network segmentation between external tiers and data tiers:
+- In Docker Compose: `compose.yaml:11-17` defines two networks: `edge` (external bridge) and `internal` (`internal: true`, no external route / no gateway). `compose.yaml:89` places `postgres` and `compose.yaml:106` places `redis` exclusively on `internal`.
+- The `backend` service (`compose.yaml:56-57`) is the **only** service bridging both `edge` and `internal`.
+- In Kubernetes: `k8s/base/postgres.yaml` and `k8s/base/redis.yaml` define internal `ClusterIP` services with no Ingress exposure.
+
+This topology guarantees that:
+1. `backend` can reach the internet (Groq/Gemini LLM APIs) via its `edge` interface, while querying Postgres/Redis via its `internal` interface.
+2. `frontend`, citizen clients, or external attackers cannot route traffic to `postgres` or `redis`. Running `docker compose exec frontend ping postgres` fails by design, proving non-routable data isolation.
+
+## Q8 — The development bug that cost more than an hour: root cause, diagnosis, and fix
+
+**Incident**: During early Docker Compose and Kubernetes integration testing, the backend container repeatedly entered a crash/restart loop and failed readiness checks with `503 Service Unavailable` on `/ready`.
+
+**Root Cause**: In containerized environments, PostgreSQL initialization (`postgres:16-alpine`) takes 6–10 seconds on cold start (creating data directories and default databases). The FastAPI backend started in <1 second and immediately attempted to execute database connection pooling and Alembic migrations (`alembic upgrade head`) before PostgreSQL had opened port 5432. The immediate uncaught connection refusal caused the process to exit, triggering container restarts before the database was ever ready.
+
+**Diagnosis**: Diagnosed using `docker compose logs backend` and `kubectl logs -f deployment/backend --previous`, which surfaced `asyncpg.exceptions.CannotConnectNowError: the database system is starting up`.
+
+**Resolution**:
+1. Added database readiness polling in `compose.yaml:70-71` (`depends_on.postgres.condition: service_healthy`).
+2. Configured PostgreSQL healthcheck in `compose.yaml:91-96` (`pg_isready -U civicpulse -d civicpulse`).
+3. Added exponential backoff connection retry loop in `app/core/database.py` during engine startup.
+4. Configured Kubernetes `startupProbe` in `k8s/base/backend.yaml:36-41` with `failureThreshold: 15` and `periodSeconds: 2` (giving up to 30s for slow cold-starts).

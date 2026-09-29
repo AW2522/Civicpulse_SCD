@@ -1,74 +1,131 @@
-# RUNBOOK
+# RUNBOOK — CivicPulse Operations
 
-## Deploy
+## 1. Deploy Procedures
 
-**Compose (local/dev):**
+### 1.1 Local & Dev (Docker Compose)
+To stand up the full stack locally with hot-reload, seeded PostgreSQL database, and Redis cache:
 ```bash
+cp .env.example .env        # ensure POSTGRES_PASSWORD is set
 docker compose -f compose.yaml up --build -d
 ```
+Verify readiness:
+```bash
+curl -fs http://localhost:8000/ready
+# Expected: {"status":"ready","postgres":"connected","redis":"connected"}
+```
+Access endpoints:
+- Frontend: http://localhost:5173
+- Backend API Docs: http://localhost:8000/docs
+- Health Probes: http://localhost:8000/health (liveness), http://localhost:8000/ready (readiness)
 
-**Kubernetes (prod overlay, from CI):** happens automatically in `cd.yml`
-on every push to `main` — it builds, pushes to GHCR tagged by commit SHA,
-patches `k8s/overlays/prod` to point at that SHA, and applies it to the
-cluster. To do the same thing by hand against a real cluster:
+### 1.2 Kubernetes Production Overlay (Automated & Manual)
+**Automated CD**: Push to `main` triggers `.github/workflows/cd.yml`, which builds images tagged by commit SHA, publishes to GHCR, patches `k8s/overlays/prod`, and applies manifests.
 
+**Manual Deployment to Kubernetes (k3d / kind / cloud cluster)**:
 ```bash
 cd k8s/overlays/prod
 kustomize edit set image \
   ghcr.io/REPLACE_OWNER/civicpulse-backend=ghcr.io/<owner>/civicpulse-backend:<sha> \
   ghcr.io/REPLACE_OWNER/civicpulse-frontend=ghcr.io/<owner>/civicpulse-frontend:<sha>
+
 kustomize build . | kubectl apply -f -
+
 kubectl -n civicpulse rollout status deployment/backend
 kubectl -n civicpulse rollout status deployment/frontend
 ```
 
-## Roll back
+---
 
-Two mechanisms — use the fast one during an incident, the declarative one
-once things are stable:
+## 2. Rollback Procedures
 
-**Fast (the 3 a.m. answer):**
+### 2.1 Fast Rollback (Incident Response — 3 a.m. Procedure)
+Use Kubernetes imperative rollback when immediate mitigation is required:
 ```bash
 kubectl -n civicpulse rollout undo deployment/backend
 kubectl -n civicpulse rollout undo deployment/frontend
 ```
 
-**Declarative (the correct answer once the fire is out):** re-run the
-deploy steps above with the previous commit's SHA instead of the current
-one. This is auditable — the manifest applied is exactly what was applied
-before, not "whatever `rollout undo` happened to restore."
-
-## Read logs
-
-All services log structured JSON to stdout (never to a file — container
-filesystems are ephemeral):
-
+### 2.2 Declarative Rollback (Auditable / Post-Incident Procedure)
+Once the incident is mitigated, restore the declarative state in Git by reapplying the previous known-good commit SHA:
 ```bash
-# Compose
-docker compose logs -f backend
+PREV_SHA="<previous-stable-git-sha>"
+cd k8s/overlays/prod
+kustomize edit set image \
+  ghcr.io/REPLACE_OWNER/civicpulse-backend=ghcr.io/<owner>/civicpulse-backend:${PREV_SHA} \
+  ghcr.io/REPLACE_OWNER/civicpulse-frontend=ghcr.io/<owner>/civicpulse-frontend:${PREV_SHA}
 
-# Kubernetes
-kubectl -n civicpulse logs -f deployment/backend
-kubectl -n civicpulse logs -f deployment/backend --previous   # after a restart
+kustomize build . | kubectl apply -f -
 ```
 
-Every backend log line carries a `request_id` propagated from the
-`X-Request-ID` header — grep by it to follow one request across the stack.
+---
 
-## When triage starts failing
+## 3. Reading Logs & Request Tracing
 
-1. Check `GET /api/meta/providers` — it names the active provider and the
-   last 20 outcomes (provider, latency, fallback y/n). A rising
-   `fallback: true` rate is the first signal.
-2. Check for a `WARNING` log line with the complaint id, provider, and
-   error class — one is logged per triage fallback.
-3. If the active provider is `llm` and it's a free-tier rate limit: either
-   wait it out, or switch `TRIAGE_PROVIDER` to `ollama` (no external
-   dependency, no rate limit) via the ConfigMap and roll the backend
-   Deployment.
-4. Regardless of cause, `POST /api/complaints` should keep returning 201
-   with `triaged_by: "rules:fallback"` — if it's returning 5xx instead,
-   that's the actual incident (the fallback itself is broken), not the LLM
-   provider being unavailable.
-5. Confirm `TRIAGE_PROVIDER=simulated` is used in CI (`ci.yml`) — CI must
-   never depend on a live LLM provider's availability.
+All backend and frontend services log structured JSON to `stdout`:
+
+```bash
+# Docker Compose logs
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# Kubernetes Pod logs
+kubectl -n civicpulse logs -f deployment/backend
+kubectl -n civicpulse logs -f deployment/frontend
+
+# View logs from a previous crashed container instance
+kubectl -n civicpulse logs -f deployment/backend --previous
+```
+
+### 3.1 Distributed Request Tracing
+Every HTTP request generates or propagates a unique `request_id` via the `X-Request-ID` header.
+To trace a specific request across backend log streams:
+```bash
+kubectl -n civicpulse logs deployment/backend | grep "req_abc123"
+```
+
+---
+
+## 4. Triage Failure Playbook
+
+When automated AI complaint triage starts degrading or failing:
+
+### Step 1: Check Provider Health & Fallback Rate
+Inspect the provider metadata endpoint:
+```bash
+curl -s http://localhost:8000/api/meta/providers | jq .
+```
+Look for `fallback: true` in recent outcomes. If the fallback rate rises above 20%, an upstream LLM issue is occurring.
+
+### Step 2: Inspect Error Logs
+Search backend logs for structured fallback warnings:
+```bash
+kubectl -n civicpulse logs deployment/backend | grep "WARNING" | grep "fallback"
+```
+Identify the failure reason:
+- `HTTP 429 Too Many Requests`: Upstream LLM rate limit exceeded.
+- `TimeoutError (10s)`: Upstream LLM latency degradation.
+- `JSONDecodeError` or `ValidationError`: Model hallucinated invalid schema.
+
+### Step 3: Switch Active Triage Provider
+If the primary LLM provider (Groq/Gemini) is exhausted, switch to local Ollama or rule-based fallback without downtime:
+```bash
+# Option A: In Kubernetes via ConfigMap
+kubectl -n civicpulse patch configmap civicpulse-config --type merge -p '{"data":{"TRIAGE_PROVIDER":"rules"}}'
+kubectl -n civicpulse rollout restart deployment/backend
+
+# Option B: In Docker Compose
+# Edit .env: TRIAGE_PROVIDER=rules
+docker compose -f compose.yaml up -d backend
+```
+
+### Step 4: Verify Fallback Invariance
+Confirm intake endpoints continue returning HTTP 201 with `"triaged_by": "rules:fallback"`:
+```bash
+curl -s -X POST http://localhost:8000/api/complaints \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Gutter overflow and water supply disruption","location":"Block 4"}' | jq .
+```
+*Expected Result*: Status 201, `category: "water"`, `priority: "high"`, `triaged_by: "rules:fallback"`.
+
+### Step 5: Verify CI Independence
+Ensure that CI pipeline configurations (`ci.yml`) strictly use `TRIAGE_PROVIDER=simulated` so automated builds never depend on external API keys or network availability.
