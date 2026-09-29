@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,9 +15,23 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 
-    # Database settings
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/civicpulse"
-    
+    # Individual Postgres environment variables (from Docker Compose / K8s ConfigMap & Secret)
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "civicpulse"
+    POSTGRES_USER: str = "civicpulse"
+    POSTGRES_PASSWORD: str = "postgres"
+
+    # Database connection URL (assembled dynamically from POSTGRES_* if not explicitly provided)
+    DATABASE_URL: str = ""
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.DATABASE_URL:
+            self.DATABASE_URL = (
+                f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+                f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            )
+
     # Redis settings
     REDIS_URL: str = "redis://localhost:6379/0"
 
