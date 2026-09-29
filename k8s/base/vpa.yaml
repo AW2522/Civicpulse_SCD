@@ -1,0 +1,22 @@
+# Recommender mode only (updateMode: "Off") — it computes and reports
+# recommended requests/limits but never evicts or rewrites pods itself.
+#
+# Why "Off" and not "Auto": HPA here scales on CPU utilization, which is
+# usage ÷ request. If VPA in Auto mode raised the backend's CPU request,
+# that alone would lower computed utilization, which would make HPA scale
+# in, which raises per-pod load, which makes VPA raise the request again —
+# the two autoscalers would fight over the same signal. Recommender mode
+# plus a human reading `kubectl describe vpa` and updating the manifest by
+# hand is the standard way to avoid that loop.
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: backend-vpa
+  namespace: civicpulse
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  updatePolicy:
+    updateMode: "Off"

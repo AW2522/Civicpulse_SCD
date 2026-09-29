@@ -1,0 +1,34 @@
+# Single host, path-based routing. `civicpulse.local` is for k3d/kind — add
+# it to /etc/hosts pointing at the ingress controller's address, or swap it
+# for a real host once you have one.
+#
+# No rewrite here: the backend's own routes already live under /api
+# (assignment §2.2 contract is e.g. POST /api/complaints), and the frontend's
+# nginx.conf proxies /api/ straight through without stripping the prefix —
+# this Ingress does the same, so the path a browser sends is the path the
+# backend actually registers.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: civicpulse
+  namespace: civicpulse
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: civicpulse.local
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 8080

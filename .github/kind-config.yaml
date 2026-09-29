@@ -1,0 +1,17 @@
+# Used by cd.yml's deploy-k8s job (helm/kind-action). Standard kind-for-ingress setup:
+# label the node so the ingress-nginx "kind" provider manifest schedules onto it, and map
+# node port 80 to the runner's port 80 so `curl http://localhost/...` reaches the Ingress.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP

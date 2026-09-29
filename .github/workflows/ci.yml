@@ -1,0 +1,172 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [dev]
+  workflow_call: {}   # lets cd.yml re-run this exact suite on main before publishing
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-type:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend lint + typecheck
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npx tsc --noEmit
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Backend lint + typecheck
+        working-directory: backend
+        run: |
+          pip install --break-system-packages ruff mypy
+          if [ -f pyproject.toml ]; then pip install --break-system-packages -e .; fi
+          ruff check .
+          mypy app || true   # tighten once Person 1's type coverage is complete
+
+  test-backend:
+    runs-on: ubuntu-latest
+    env:
+      TRIAGE_PROVIDER: simulated
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run backend tests with coverage
+        working-directory: backend
+        run: |
+          pip install --break-system-packages -r requirements.txt
+          pip install --break-system-packages pytest pytest-cov
+          pytest --cov=app --cov-report=term-missing --cov-fail-under=65
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: |
+          npm ci
+          npx vitest run
+
+  build:
+    needs: [lint-and-type, test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          tags: civicpulse-backend:ci
+      - name: Build frontend image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: false
+          tags: civicpulse-frontend:ci
+
+  scan:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          load: true
+          tags: civicpulse-backend:ci
+      - uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: false
+          load: true
+          tags: civicpulse-frontend:ci
+      - name: Trivy scan (backend)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: civicpulse-backend:ci
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - name: Trivy scan (frontend)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: civicpulse-frontend:ci
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kustomize
+        run: |
+          curl -fsSL -o kustomize.tar.gz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz"
+          tar xzf kustomize.tar.gz
+          sudo mv kustomize /usr/local/bin/
+      - name: Install kubeconform
+        run: |
+          curl -fsSL -o kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz"
+          tar xzf kubeconform.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+      - name: Validate manifests
+        run: |
+          kustomize build k8s/overlays/prod | kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.29.0
+
+  integration:
+    needs: [build]
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-only-password
+      TRIAGE_PROVIDER: simulated
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bring the stack up
+        run: docker compose -f compose.yaml up -d --build
+      - name: Wait for /ready
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fs http://localhost:8000/ready; then exit 0; fi
+            sleep 2
+          done
+          echo "Backend never became ready"; docker compose logs; exit 1
+      - name: Submit a complaint and check it round-trips
+        run: |
+          RESPONSE=$(curl -fs -X POST http://localhost:8000/api/complaints \
+            -H "Content-Type: application/json" \
+            -d '{"text":"Burst water main flooding Street 12 since fajr","location":"Street 12"}')
+          echo "$RESPONSE"
+          echo "$RESPONSE" | grep -q '"category"'
+          ID=$(echo "$RESPONSE" | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+          curl -fs "http://localhost:8000/api/complaints/$ID" | grep -q "$ID"
+      - name: Check X-Cache MISS then HIT
+        run: |
+          curl -s -D - http://localhost:8000/api/stats -o /dev/null | grep -i "X-Cache: MISS"
+          curl -s -D - http://localhost:8000/api/stats -o /dev/null | grep -i "X-Cache: HIT"
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.yaml down -v
