@@ -2,10 +2,11 @@ name: ci
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: ["*"]
   push:
-    branches: [dev]
+    branches: ["*"]
   workflow_call: {}   # lets cd.yml re-run this exact suite on main before publishing
+
 
 permissions:
   contents: read
