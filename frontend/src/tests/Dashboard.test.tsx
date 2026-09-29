@@ -33,6 +33,30 @@ afterEach(() => {
 })
 
 describe('Dashboard view', () => {
+  it('displays loading indicator initially', () => {
+    globalThis.fetch = vi.fn().mockImplementation(() => new Promise(() => {}))
+    render(<Dashboard />)
+    expect(screen.getByText(/loading/i)).toBeInTheDocument()
+  })
+
+  it('renders empty state when no complaints are returned', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      jsonResponse(true, 200, { items: [], total: 0, page: 1, page_size: 20 }),
+    )
+    render(<Dashboard />)
+
+    expect(await screen.findByText(/no complaints match these filters/i)).toBeInTheDocument()
+  })
+
+  it('renders error message when fetching complaints fails', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      jsonResponse(false, 500, { detail: 'Internal server error' }),
+    )
+    render(<Dashboard />)
+
+    expect(await screen.findByText(/internal server error/i)).toBeInTheDocument()
+  })
+
   it('lists complaints returned by the API with their category and priority', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       jsonResponse(true, 200, { items: [complaint], total: 1, page: 1, page_size: 20 }),
