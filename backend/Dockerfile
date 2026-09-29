@@ -23,7 +23,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
-RUN addgroup --system appuser && adduser --system --group appuser --home /home/appuser --create-home
+RUN groupadd -r appuser && useradd -r -g appuser -d /home/appuser -m appuser
 
 COPY --from=build /opt/venv /opt/venv
 COPY . /app
@@ -37,5 +37,6 @@ HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
     CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')" || exit 1
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
 
 
