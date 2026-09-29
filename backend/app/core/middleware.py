@@ -1,8 +1,10 @@
-import uuid
 import time
+import uuid
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from app.core.logging import request_id_ctx, logger
+
+from app.core.logging import logger, request_id_ctx
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

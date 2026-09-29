@@ -2,15 +2,16 @@ import hashlib
 import json
 import time
 from collections import deque
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Any
+
 from app.config import settings
 from app.core.logging import logger
 from app.core.redis import get_redis_client
-from app.schemas.triage import TriageResult
-from app.providers.triage_interface import TriageProvider
+from app.providers.llm_triage import LLMTriage
 from app.providers.rule_triage import RuleBasedTriage
 from app.providers.simulated_triage import SimulatedTriage
-from app.providers.llm_triage import LLMTriage
+from app.providers.triage_interface import TriageProvider
+from app.schemas.triage import TriageResult
 
 
 class TriageManager:
@@ -42,11 +43,11 @@ class TriageManager:
         else:
             return self.simulated_provider
 
-    async def _get_cached_triage(self, text: str, location: str) -> Optional[Tuple[TriageResult, str]]:
+    async def _get_cached_triage(self, text: str, location: str) -> tuple[TriageResult, str] | None:
         """Checks Redis for cached triage result using SHA-256 hash of text + location."""
         try:
             redis_client = await get_redis_client()
-            content_hash = hashlib.sha256(f"{text.strip()}||{location.strip()}".encode("utf-8")).hexdigest()
+            content_hash = hashlib.sha256(f"{text.strip()}||{location.strip()}".encode()).hexdigest()
             cache_key = f"triage_cache:{content_hash}"
             
             cached_val = await redis_client.get(cache_key)
@@ -63,7 +64,7 @@ class TriageManager:
         """Caches triage result in Redis with 24h TTL."""
         try:
             redis_client = await get_redis_client()
-            content_hash = hashlib.sha256(f"{text.strip()}||{location.strip()}".encode("utf-8")).hexdigest()
+            content_hash = hashlib.sha256(f"{text.strip()}||{location.strip()}".encode()).hexdigest()
             cache_key = f"triage_cache:{content_hash}"
             
             payload = json.dumps({
@@ -74,7 +75,7 @@ class TriageManager:
         except Exception as e:
             logger.warning(f"Failed to save triage result to Redis cache: {e}")
 
-    async def execute_triage(self, text: str, location: str) -> Tuple[TriageResult, str, float]:
+    async def execute_triage(self, text: str, location: str) -> tuple[TriageResult, str, float]:
         self.total_triage_count += 1
         start_time = time.perf_counter()
 
@@ -119,7 +120,7 @@ class TriageManager:
         }
         self.recent_outcomes.appendleft(outcome)
 
-    def get_meta_info(self) -> Dict[str, Any]:
+    def get_meta_info(self) -> dict[str, Any]:
         """Returns metadata for GET /api/meta/providers."""
         hit_rate = round((self.cache_hits / self.total_triage_count) * 100, 2) if self.total_triage_count > 0 else 0.0
         return {

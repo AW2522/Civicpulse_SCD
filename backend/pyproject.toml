@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 200
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "B008",   # Allow FastAPI Depends() and Query() in function default arguments
+    "BLE001",  # Allow catching general Exception in fallback/cache wrappers
+    "E501",    # Allow longer line length in docstrings, regex, and keyword lists
+    "UP042"    # Allow inheriting from both str and Enum for enum classes
+]

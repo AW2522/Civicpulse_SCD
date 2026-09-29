@@ -1,21 +1,20 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.core.logging import setup_logging, logger
-from app.core.middleware import RequestIDMiddleware
 from app.core.database import close_db
+from app.core.logging import logger, setup_logging
+from app.core.middleware import RequestIDMiddleware
 from app.core.redis import close_redis
-
 from app.routes.complaints import router as complaints_router
-from app.routes.stats import router as stats_router
 from app.routes.meta import router as meta_router
-from app.routes.probes import router as probes_router
 from app.routes.metrics import router as metrics_router
+from app.routes.probes import router as probes_router
+from app.routes.stats import router as stats_router
 
 
 @asynccontextmanager
@@ -64,7 +63,7 @@ app.add_middleware(RequestIDMiddleware)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     errors = []
     for err in exc.errors():
-        loc = " -> ".join(str(l) for l in err.get("loc", []))
+        loc = " -> ".join(str(item) for item in err.get("loc", []))
         errors.append({"field": loc, "message": err.get("msg")})
     
     return JSONResponse(

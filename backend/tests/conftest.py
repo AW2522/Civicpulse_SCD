@@ -1,17 +1,15 @@
 import asyncio
-import pytest
-import pytest_asyncio
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.main import app
-from app.config import settings
 from app.core.database import Base, get_db
-from app.core.redis import get_redis_client
+from app.main import app
 
 # Use SQLite in-memory for fast, deterministic unit tests
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"

@@ -1,14 +1,19 @@
 import uuid
-from typing import Optional, List, Tuple
+
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.complaint import Complaint, ComplaintCategory, ComplaintPriority, ComplaintStatus
-from app.schemas.complaint import ComplaintCreate
-from app.repositories.complaint_repository import ComplaintRepository
-from app.providers.triage_factory import triage_manager
-from app.core.redis import get_redis_client
 from app.core.logging import logger
+from app.core.redis import get_redis_client
+from app.models.complaint import (
+    Complaint,
+    ComplaintCategory,
+    ComplaintPriority,
+    ComplaintStatus,
+)
+from app.providers.triage_factory import triage_manager
+from app.repositories.complaint_repository import ComplaintRepository
+from app.schemas.complaint import ComplaintCreate
 
 # Valid state transition matrix
 VALID_TRANSITIONS = {
@@ -78,12 +83,12 @@ class ComplaintService:
 
     async def list_complaints(
         self,
-        category: Optional[ComplaintCategory] = None,
-        priority: Optional[ComplaintPriority] = None,
-        status_filter: Optional[ComplaintStatus] = None,
+        category: ComplaintCategory | None = None,
+        priority: ComplaintPriority | None = None,
+        status_filter: ComplaintStatus | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> Tuple[List[Complaint], int]:
+    ) -> tuple[list[Complaint], int]:
         """Lists complaints with filters and pagination."""
         return await self.repo.list_complaints(
             category=category,
@@ -112,5 +117,7 @@ class ComplaintService:
             )
 
         updated = await self.repo.update_status(complaint_id, new_status)
+        if not updated:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
         await self.invalidate_stats_cache()
         return updated

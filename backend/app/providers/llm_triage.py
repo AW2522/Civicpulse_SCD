@@ -1,14 +1,14 @@
+import asyncio
 import json
 import random
-import asyncio
 import time
-from typing import Tuple
+
 import httpx
+
 from app.config import settings
 from app.core.logging import logger
-from app.models.complaint import ComplaintCategory, ComplaintPriority
-from app.schemas.triage import TriageResult
 from app.providers.triage_interface import TriageProvider
+from app.schemas.triage import TriageResult
 
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -84,19 +84,19 @@ class LLMTriage(TriageProvider):
             parsed_json = json.loads(raw_content)
             return TriageResult.model_validate(parsed_json)
 
-    async def triage(self, text: str, location: str) -> Tuple[TriageResult, str, float]:
+    async def triage(self, text: str, location: str) -> tuple[TriageResult, str, float]:
         start_time = time.perf_counter()
         
         # Single jittered retry attempt
         max_attempts = 2
-        last_exception = None
+        last_exception: Exception | None = None
 
         for attempt in range(1, max_attempts + 1):
             try:
                 result = await self._execute_llm_call(text, location)
                 latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
                 return result, self.provider_name, latency_ms
-            except (httpx.TimeoutException, asyncio.TimeoutError) as e:
+            except (TimeoutError, httpx.TimeoutException) as e:
                 last_exception = e
                 logger.warning(f"Groq LLM call timeout on attempt {attempt}/{max_attempts}.")
             except httpx.HTTPStatusError as e:

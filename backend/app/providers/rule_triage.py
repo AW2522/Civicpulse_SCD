@@ -1,8 +1,8 @@
 import time
-from typing import Tuple
+
 from app.models.complaint import ComplaintCategory, ComplaintPriority
-from app.schemas.triage import TriageResult
 from app.providers.triage_interface import TriageProvider
+from app.schemas.triage import TriageResult
 
 
 class RuleBasedTriage(TriageProvider):
@@ -27,7 +27,7 @@ class RuleBasedTriage(TriageProvider):
         ComplaintPriority.MEDIUM: ["low voltage", "benches", "inconvenience", "uncut", "delay"],
     }
 
-    async def triage(self, text: str, location: str, is_fallback: bool = False) -> Tuple[TriageResult, str, float]:
+    async def triage(self, text: str, location: str, is_fallback: bool = False) -> tuple[TriageResult, str, float]:
         start_time = time.perf_counter()
         text_lower = text.lower()
 

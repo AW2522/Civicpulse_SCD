@@ -1,9 +1,11 @@
 import json
-from typing import Dict, Any, Tuple
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.repositories.complaint_repository import ComplaintRepository
-from app.core.redis import get_redis_client
+
 from app.core.logging import logger
+from app.core.redis import get_redis_client
+from app.repositories.complaint_repository import ComplaintRepository
 
 STATS_CACHE_KEY = "stats_cache"
 STATS_CACHE_TTL = 30  # 30 seconds TTL
@@ -18,7 +20,7 @@ class StatsService:
     def __init__(self, db: AsyncSession):
         self.repo = ComplaintRepository(db)
 
-    async def get_stats(self) -> Tuple[Dict[str, Any], str]:
+    async def get_stats(self) -> tuple[dict[str, Any], str]:
         """
         Retrieves cached stats from Redis or computes them from database.
         Returns:

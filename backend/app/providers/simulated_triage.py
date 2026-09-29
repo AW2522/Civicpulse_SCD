@@ -1,10 +1,10 @@
-import asyncio
 import time
-from typing import Tuple
+
 import httpx
+
 from app.models.complaint import ComplaintCategory, ComplaintPriority
-from app.schemas.triage import TriageResult
 from app.providers.triage_interface import TriageProvider
+from app.schemas.triage import TriageResult
 
 
 class SimulatedTriage(TriageProvider):
@@ -18,16 +18,16 @@ class SimulatedTriage(TriageProvider):
     """
     provider_name: str = "simulated:default"
 
-    async def triage(self, text: str, location: str) -> Tuple[TriageResult, str, float]:
+    async def triage(self, text: str, location: str) -> tuple[TriageResult, str, float]:
         start_time = time.perf_counter()
 
         # Fault Injection Triggers for CI testing
         if "TRIGGER_500" in text:
-            raise httpx.HTTPStatusError("Simulated 500 Internal Server Error", request=None, response=httpx.Response(500))
+            raise httpx.HTTPStatusError("Simulated 500 Internal Server Error", request=httpx.Request("POST", "http://test"), response=httpx.Response(500))
         if "TRIGGER_429" in text:
-            raise httpx.HTTPStatusError("Simulated 429 Too Many Requests", request=None, response=httpx.Response(429))
+            raise httpx.HTTPStatusError("Simulated 429 Too Many Requests", request=httpx.Request("POST", "http://test"), response=httpx.Response(429))
         if "TRIGGER_TIMEOUT" in text:
-            raise asyncio.TimeoutError("Simulated LLM Timeout after 10s")
+            raise TimeoutError("Simulated LLM Timeout after 10s")
 
         text_lower = text.lower()
         

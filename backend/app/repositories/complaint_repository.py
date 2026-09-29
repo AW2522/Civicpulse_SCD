@@ -1,8 +1,15 @@
 import uuid
-from typing import Optional, List, Tuple, Dict, Any
-from sqlalchemy import select, func, update, and_
+from typing import Any
+
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.complaint import Complaint, ComplaintCategory, ComplaintPriority, ComplaintStatus
+
+from app.models.complaint import (
+    Complaint,
+    ComplaintCategory,
+    ComplaintPriority,
+    ComplaintStatus,
+)
 
 
 class ComplaintRepository:
@@ -21,7 +28,7 @@ class ComplaintRepository:
         await self.db.refresh(complaint)
         return complaint
 
-    async def get_by_id(self, complaint_id: uuid.UUID) -> Optional[Complaint]:
+    async def get_by_id(self, complaint_id: uuid.UUID) -> Complaint | None:
         """Retrieves a single complaint by UUID."""
         stmt = select(Complaint).where(Complaint.id == complaint_id)
         result = await self.db.execute(stmt)
@@ -29,12 +36,12 @@ class ComplaintRepository:
 
     async def list_complaints(
         self,
-        category: Optional[ComplaintCategory] = None,
-        priority: Optional[ComplaintPriority] = None,
-        status: Optional[ComplaintStatus] = None,
+        category: ComplaintCategory | None = None,
+        priority: ComplaintPriority | None = None,
+        status: ComplaintStatus | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> Tuple[List[Complaint], int]:
+    ) -> tuple[list[Complaint], int]:
         """
         Lists complaints with optional filtering by category, priority, status
         and returns paginated items alongside total count.
@@ -48,28 +55,26 @@ class ComplaintRepository:
         if status:
             filters.append(Complaint.status == status)
 
-        where_clause = and_(*filters) if filters else True
+        count_stmt = select(func.count(Complaint.id))
+        items_stmt = select(Complaint)
+
+        if filters:
+            count_stmt = count_stmt.where(and_(*filters))
+            items_stmt = items_stmt.where(and_(*filters))
 
         # Count total matching records
-        count_stmt = select(func.count(Complaint.id)).where(where_clause)
         count_result = await self.db.execute(count_stmt)
         total = count_result.scalar_one() or 0
 
         # Fetch paginated items ordered by created_at DESC
         offset = (page - 1) * page_size
-        items_stmt = (
-            select(Complaint)
-            .where(where_clause)
-            .order_by(Complaint.created_at.desc())
-            .offset(offset)
-            .limit(page_size)
-        )
+        items_stmt = items_stmt.order_by(Complaint.created_at.desc()).offset(offset).limit(page_size)
         items_result = await self.db.execute(items_stmt)
         items = list(items_result.scalars().all())
 
         return items, total
 
-    async def update_status(self, complaint_id: uuid.UUID, new_status: ComplaintStatus) -> Optional[Complaint]:
+    async def update_status(self, complaint_id: uuid.UUID, new_status: ComplaintStatus) -> Complaint | None:
         """Updates status of a complaint by ID."""
         complaint = await self.get_by_id(complaint_id)
         if not complaint:
@@ -80,7 +85,7 @@ class ComplaintRepository:
         await self.db.refresh(complaint)
         return complaint
 
-    async def get_stats_aggregations(self) -> Dict[str, Any]:
+    async def get_stats_aggregations(self) -> dict[str, Any]:
         """
         Aggregates complaint stats for GET /api/stats:
         - Total count

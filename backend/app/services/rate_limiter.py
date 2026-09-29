@@ -1,10 +1,10 @@
-from typing import Tuple
+
 from app.config import settings
-from app.core.redis import get_redis_client
 from app.core.logging import logger
+from app.core.redis import get_redis_client
 
 
-async def check_rate_limit(client_ip: str) -> Tuple[bool, int]:
+async def check_rate_limit(client_ip: str) -> tuple[bool, int]:
     """
     Fixed-window rate limiter using Redis INCR + EXPIRE.
     Key format: rate_limit:{client_ip}

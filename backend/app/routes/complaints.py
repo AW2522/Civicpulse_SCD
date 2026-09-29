@@ -1,11 +1,16 @@
 import uuid
-from typing import Optional
-from fastapi import APIRouter, Depends, Query, Request, Response, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.complaint import ComplaintCategory, ComplaintPriority, ComplaintStatus
-from app.schemas.complaint import ComplaintCreate, ComplaintResponse, ComplaintStatusUpdate, PaginatedComplaints
+from app.schemas.complaint import (
+    ComplaintCreate,
+    ComplaintResponse,
+    ComplaintStatusUpdate,
+    PaginatedComplaints,
+)
 from app.services.complaint_service import ComplaintService
 from app.services.rate_limiter import check_rate_limit
 
@@ -51,9 +56,9 @@ async def get_complaint_by_id(
 
 @router.get("", response_model=PaginatedComplaints)
 async def list_complaints(
-    category: Optional[ComplaintCategory] = Query(None, description="Filter by category"),
-    priority: Optional[ComplaintPriority] = Query(None, description="Filter by priority"),
-    status: Optional[ComplaintStatus] = Query(None, description="Filter by status"),
+    category: ComplaintCategory | None = Query(None, description="Filter by category"),
+    priority: ComplaintPriority | None = Query(None, description="Filter by priority"),
+    status: ComplaintStatus | None = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
     db: AsyncSession = Depends(get_db),
@@ -69,7 +74,7 @@ async def list_complaints(
     )
     total_pages = (total + page_size - 1) // page_size if total > 0 else 0
     return PaginatedComplaints(
-        items=items,
+        items=[ComplaintResponse.model_validate(item) for item in items],
         total=total,
         page=page,
         page_size=page_size,

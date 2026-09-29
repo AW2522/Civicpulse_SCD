@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Response
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from app.providers.triage_factory import triage_manager
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 router = APIRouter(tags=["Metrics"])
 

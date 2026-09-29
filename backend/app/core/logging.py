@@ -2,8 +2,8 @@ import json
 import logging
 import sys
 from contextvars import ContextVar
-from datetime import datetime, timezone
-from typing import Any, Dict
+from datetime import UTC, datetime
+from typing import Any
 
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
 
@@ -15,8 +15,8 @@ class JSONFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        log_record: Dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+        log_record: dict[str, Any] = {
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "request_id": request_id_ctx.get() or "N/A",
             "logger": record.name,

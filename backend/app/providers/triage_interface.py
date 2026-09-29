@@ -1,4 +1,5 @@
-from typing import Protocol, Tuple
+from typing import Protocol
+
 from app.schemas.triage import TriageResult
 
 
@@ -9,7 +10,7 @@ class TriageProvider(Protocol):
     """
     provider_name: str
 
-    async def triage(self, text: str, location: str) -> Tuple[TriageResult, str, float]:
+    async def triage(self, text: str, location: str) -> tuple[TriageResult, str, float]:
         """
         Triages complaint text and location.
         Returns:

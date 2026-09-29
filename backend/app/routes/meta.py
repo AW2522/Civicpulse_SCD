@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from app.providers.triage_factory import triage_manager
 
 router = APIRouter(prefix="/api/meta", tags=["Metadata"])

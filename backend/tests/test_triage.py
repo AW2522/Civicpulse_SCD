@@ -1,15 +1,16 @@
 import pytest
 from httpx import AsyncClient
+
+from app.models.complaint import ComplaintCategory, ComplaintPriority
 from app.providers.rule_triage import RuleBasedTriage
 from app.providers.simulated_triage import SimulatedTriage
-from app.models.complaint import ComplaintCategory, ComplaintPriority
 
 
 @pytest.mark.asyncio
 async def test_rule_based_triage_direct():
     """Test RuleBasedTriage keyword categorization and priority assignment."""
     provider = RuleBasedTriage()
-    res, tag, latency = await provider.triage(
+    res, tag, _latency = await provider.triage(
         text="Water pipeline leaking heavily and paani spilling on main road.",
         location="Johar Town, Lahore"
     )
@@ -23,7 +24,7 @@ async def test_rule_based_triage_direct():
 async def test_simulated_triage_direct():
     """Test SimulatedTriage mock output generation."""
     provider = SimulatedTriage()
-    res, tag, latency = await provider.triage(
+    res, tag, _latency = await provider.triage(
         text="Transformer blast near street 5, no bijli in heat!",
         location="Multan"
     )
