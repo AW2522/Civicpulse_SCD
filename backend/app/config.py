@@ -1,6 +1,6 @@
-import os
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,13 +16,14 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 
-    # Individual Postgres environment variables (from Docker Compose / K8s ConfigMap & Secret)
-    POSTGRES_HOST: str = "localhost"
+    # Database settings
+    POSTGRES_HOST: str | None = None
     POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str = "civicpulse"
-    POSTGRES_USER: str = "civicpulse"
-    POSTGRES_PASSWORD: str = "postgres"
-
+    POSTGRES_USER: str | None = None
+    POSTGRES_PASSWORD: str | None = None
+    POSTGRES_DB: str | None = None
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/civicpulse"
+    
     # Redis settings
     REDIS_URL: str = "redis://localhost:6379/0"
 
@@ -37,19 +38,15 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 10.0
     CACHE_TRIAGE_TTL_SECONDS: int = 86400  # 24 hours
 
-    @property
-    def DATABASE_URL(self) -> str:
-        """
-        Dynamically constructs PostgreSQL connection string from individual POSTGRES_* env vars.
-        If DATABASE_URL environment variable is explicitly set, uses that instead.
-        """
-        explicit_url = os.environ.get("DATABASE_URL")
-        if explicit_url:
-            return explicit_url
-        return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
+    @model_validator(mode="after")
+    def assemble_db_connection(self) -> "Settings":
+        if self.POSTGRES_HOST and self.POSTGRES_USER and self.POSTGRES_DB:
+            password = f":{self.POSTGRES_PASSWORD}" if self.POSTGRES_PASSWORD else ""
+            self.DATABASE_URL = (
+                f"postgresql+asyncpg://{self.POSTGRES_USER}{password}@"
+                f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            )
+        return self
 
 
 settings = Settings()

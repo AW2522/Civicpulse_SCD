@@ -5,8 +5,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import app.models as _models  # noqa: F401
 from app.config import settings
-from app.core.database import close_db
+from app.core.database import Base, close_db, engine
 from app.core.logging import logger, setup_logging
 from app.core.middleware import RequestIDMiddleware
 from app.core.redis import close_redis
@@ -30,9 +31,9 @@ async def lifespan(app: FastAPI):
         from app.models.complaint import Complaint  # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created successfully.")
+        logger.info("Database tables initialized successfully.")
     except Exception as e:
-        logger.error(f"Error initializing database schema on startup: {e}")
+        logger.warning(f"Database schema auto-creation skipped or failed on startup: {e}")
     yield
     logger.info("Received SIGTERM/SIGINT signal. Initiating graceful shutdown sequence...")
     await close_db()
