@@ -9,10 +9,11 @@ import type {
   StatsResponse,
 } from '../types'
 
-// Relative path default for Vite dev-server proxy and production nginx,
-// with optional VITE_API_URL override support.
-const BASE_URL = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/api`
+// Relative path only — deliberately no absolute backend origin here.
+// In production nginx proxies /api to the backend container; in dev, Vite's
+// server.proxy does the same. See docs/adr/0002-frontend-runtime-config.md.
+const BASE_URL = import.meta.env['VITE_API_URL']
+  ? `${import.meta.env['VITE_API_URL']}/api`
   : '/api'
 
 
