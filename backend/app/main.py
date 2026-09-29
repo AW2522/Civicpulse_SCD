@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} in environment '{settings.ENVIRONMENT}'...")
     try:
         from app.core.database import Base, engine
+        from app.models.complaint import Complaint  # noqa: F401
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables verified/created successfully.")

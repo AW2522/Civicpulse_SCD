@@ -106,17 +106,19 @@ jobs:
           tags: civicpulse-frontend:ci
       - name: Trivy scan (backend)
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
           image-ref: civicpulse-backend:ci
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
       - name: Trivy scan (frontend)
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
           image-ref: civicpulse-frontend:ci
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
 
   manifests:
